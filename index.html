@@ -65,7 +65,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stro
 
 /* ── الشريط العلوي ── */
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:30;background:var(--surface)}
-.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:color-mix(in srgb,var(--surface) 92%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--surface);border-bottom:1px solid var(--line)}
 .bar .wrap{display:flex;align-items:center;gap:16px;height:60px}
 .bar .brand{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:700;font-size:var(--fs-sm);color:var(--head);white-space:nowrap}
 .bar .brand img{height:34px;width:auto}
@@ -407,7 +407,7 @@ figcaption{font-size:var(--fs-xs);color:var(--muted);margin-top:6px}
     <p class="sub">جمعية الرياحين لتنمية الطفل</p>
     <span class="term">الفصل الدراسي الأول 1448هـ</span>
     <div class="cta"><a class="btn" href="#tally">تصفّح التقرير <svg class="i"><use href="#down"/></svg></a></div>
-    <p class="keys">للعرض: <kbd>↓</kbd> <kbd>↑</kbd> للتنقل بين الشرائح</p>
+    <p class="keys">للعرض: <kbd>←</kbd> <kbd>→</kbd> أو <kbd>Page Down</kbd> للتنقل بين الشرائح</p>
   </div>
 </section>
 
@@ -933,34 +933,49 @@ figcaption{font-size:var(--fs-xs);color:var(--muted);margin-top:6px}
     return k;
   }
   function chapterOf(el){ const c=el.closest('.chapter,#tally,#cover,#end'); return c?c.id:''; }
+  const chipBox=document.querySelector('.chips');
+  let lastCh='', ticking=false;
   function update(){
+    ticking=false;
     cur=current();
     dots.forEach((d,i)=>d.setAttribute('aria-current',i===cur));
     let ch=chapterOf(scenes[cur]);
     if(ch==='tally') ch='ch1';
     if(ch==='next'||ch==='end') ch='links';
-    chips.forEach(a=>{
-      const on=a.getAttribute('href')==='#'+ch;
-      a.setAttribute('aria-current',on);
-      if(on) a.scrollIntoView({block:'nearest',inline:'nearest'});
-    });
+    if(ch!==lastCh){
+      lastCh=ch;
+      chips.forEach(a=>{
+        const on=a.getAttribute('href')==='#'+ch;
+        a.setAttribute('aria-current',on);
+        // كان scrollIntoView هنا يُنادى مع كل إطار تمرير، فيقطع تمرير الصفحة نفسها
+        // ويُرجعها. الآن يُحرَّك شريط الفصول وحده، ومرّةً عند تغيّر الفصل.
+        if(on){
+          const b=chipBox.getBoundingClientRect(), r=a.getBoundingClientRect();
+          if(r.left<b.left||r.right>b.right) chipBox.scrollBy({left:(r.left+r.width/2)-(b.left+b.width/2),behavior:'smooth'});
+        }
+      });
+    }
     const h=document.documentElement.scrollHeight-innerHeight;
     prog.style.width=(h>0?scrollY/h*100:0)+'%';
   }
-  addEventListener('scroll',()=>requestAnimationFrame(update),{passive:true});
+  addEventListener('scroll',()=>{ if(!ticking){ ticking=true; requestAnimationFrame(update); } },{passive:true});
   addEventListener('resize',update);
   update();
 
-  // للعرض أمام الحضور: الأسهم وPageUp/PageDown تنقل شريحةً شريحة
+  // للعرض أمام الحضور: ← → وPageUp/PageDown (وهي ما يرسله جهاز التقليب) تنقل شريحةً شريحة.
+  // ↑ ↓ تُترك للتمرير العادي: خطفُهما كان يقفز شريحةً كاملة وأنت تقرأ.
+  let target=-1, targetAt=0;
   addEventListener('keydown',e=>{
-    if(e.target.closest('input,textarea,select')||e.altKey||e.ctrlKey||e.metaKey) return;
-    const next=['ArrowDown','PageDown','ArrowLeft'].includes(e.key);
-    const prev=['ArrowUp','PageUp','ArrowRight'].includes(e.key);
+    if(e.target.closest('input,textarea,select,button')||e.altKey||e.ctrlKey||e.metaKey) return;
+    const next=['PageDown','ArrowLeft'].includes(e.key);
+    const prev=['PageUp','ArrowRight'].includes(e.key);
     if(!next&&!prev&&e.key!=='Home'&&e.key!=='End') return;
     e.preventDefault();
-    let k=current();
+    // ضغطتان متتاليتان أثناء الانزلاق كانتا تحسبان من الشريحة نفسها فتعلقان
+    let k=(target>=0&&performance.now()-targetAt<900)?target:current();
     if(e.key==='Home') k=0; else if(e.key==='End') k=scenes.length-1;
     else k=Math.max(0,Math.min(scenes.length-1,k+(next?1:-1)));
+    target=k; targetAt=performance.now();
     scenes[k].scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});
   });
 
